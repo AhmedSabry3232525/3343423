@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>مشغّل YouTube بـ Plyr</title>
+  <!-- Plyr CSS (CDN) -->
+  <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+  <style>
+    body{font-family: Tahoma, Arial, sans-serif; background:#f5f7fb; color:#111; padding:24px}
+    .card{max-width:900px;margin:0 auto;background:#fff;padding:18px;border-radius:12px;box-shadow:0 6px 18px rgba(12,20,40,0.08)}
+    h1{font-size:20px;margin:0 0 12px}
+    label{display:block;margin-bottom:8px;font-weight:600}
+    input[type="text"]{width:100%;padding:10px;border:1px solid #dfe6ef;border-radius:8px;font-size:14px}
+    .controls{display:flex;gap:8px;margin-top:10px}
+    button{padding:10px 14px;border-radius:8px;border:0;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
+    button.secondary{background:#6b7280}
+    .player-wrap{margin-top:16px}
+    /* Responsive iframe container */
+    .video-container{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:8px;background:#000}
+    .video-container iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+    .note{font-size:13px;color:#475569;margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>ادخل رابط YouTube وشغّل الفيديو (Plyr)</h1>
+
+    <label for="url">رابط YouTube أو ID الفيديو</label>
+    <input id="url" type="text" placeholder="مثال: https://www.youtube.com/watch?v=dQw4w9WgXcQ أو dQw4w9WgXcQ" />
+
+    <div class="controls">
+      <button id="watchBtn">مشاهدة</button>
+      <button id="clearBtn" class="secondary">مسح</button>
+    </div>
+
+    <div class="player-wrap">
+      <div id="videoArea" class="video-container" style="display:none">
+        <!-- استخدم حاوية Plyr الرسمية -->
+        <div id="player" class="plyr__video-embed">
+          <iframe allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+        </div>
+      </div>
+      <p id="msg" class="note"></p>
+    </div>
+
+    <p class="note">ملاحظة: الصفحة تستخدم Plyr (CDN). يلزم اتصال إنترنت لتحميل مكتبة Plyr وتشغيل فيديوهات YouTube.</p>
+  </div>
+
+  <!-- Plyr JS (CDN) -->
+  <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
+  <script>
+    // عناصر DOM
+    const urlInput = document.getElementById('url');
+    const watchBtn = document.getElementById('watchBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const videoArea = document.getElementById('videoArea');
+    const playerContainer = document.getElementById('player'); // الحاوية الرسمية لـ Plyr
+    let playerIframe = playerContainer ? playerContainer.querySelector('iframe') : null;
+    const msg = document.getElementById('msg');
+
+    let plyrPlayer = null;
+
+    // دالة لاستخراج YouTube ID من رابط أو مناداة مباشرة للـ ID
+    function extractYouTubeID(urlOrId) {
+      if (!urlOrId) return null;
+      urlOrId = urlOrId.trim();
+      // إذا كان يبدو كـ ID قصير (11 حرف تقريبًا) فارجعه مباشرة
+      const simpleIdMatch = urlOrId.match(/^[a-zA-Z0-9_-]{11}$/);
+      if (simpleIdMatch) return simpleIdMatch[0];
+
+      // محاولات لاستخراج من روابط YouTube متنوعة
+      // أمثلة:
+      // https://www.youtube.com/watch?v=VIDEOID
+      // https://youtu.be/VIDEOID
+      // https://www.youtube.com/embed/VIDEOID
+      const patterns = [
+        /[?&]v=([a-zA-Z0-9_-]{11})/, // ?v=VIDEOID
+        /youtu\.be\/([a-zA-Z0-9_-]{11})/, // youtu.be/VIDEOID
+        /embed\/([a-zA-Z0-9_-]{11})/ // embed/VIDEOID
+      ];
+      for (const p of patterns) {
+        const m = urlOrId.match(p);
+        if (m && m[1]) return m[1];
+      }
+      return null; // لم نجد
+    }
+
+    function showMessage(text, isError=false) {
+      msg.textContent = text || '';
+      msg.style.color = isError ? '#b91c1c' : '#475569';
+    }
+
+    function setupPlyr() {
+      // إذا تم تهيئة مسبقًا، نعيد تهيئته لتطبيق التغييرات
+      if (plyrPlayer) {
+        try { plyrPlayer.destroy(); } catch(e) {}
+        plyrPlayer = null;
+      }
+      // تهيئة Plyr على الحاوية (#player)
+      plyrPlayer = new Plyr('#player', {
+        controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'settings', 'fullscreen'],
+        seekTime: 10
+      });
+    }
+
+    watchBtn.addEventListener('click', () => {
+      const input = urlInput.value;
+      const id = extractYouTubeID(input);
+      if (!id) {
+        showMessage('الرابط غير صحيح أو لا يحتوي على YouTube ID. حاول مرة أخرى.', true);
+        videoArea.style.display = 'none';
+        return;
+      }
+
+      // إعداد رابط embed مع enablejsapi لتعمل تحكمات Plyr بشكل أفضل
+      const embedUrl = `https://www.youtube.com/embed/${id}?origin=${encodeURIComponent(location.origin)}&rel=0&modestbranding=1&enablejsapi=1`;
+
+      // حدّث مرجع الـ iframe قبل تعيين src (قد يكون تم تغييره في DOM)
+      playerIframe = playerContainer ? playerContainer.querySelector('iframe') : null;
+      if (!playerIframe) {
+        showMessage('خطأ داخلي: لم أجد عنصر iframe داخل حاوية المشغّل.', true);
+        return;
+      }
+
+      playerIframe.src = embedUrl;
+      videoArea.style.display = 'block';
+      showMessage('جارِ تحميل الفيديو...');
+
+      // انتظار تحميل الـ iframe ثم تهيئة Plyr
+      playerIframe.onload = function() {
+        try {
+          setupPlyr();
+          showMessage('تم التحميل — اضغط تشغيل للبدء.');
+        } catch (err) {
+          showMessage('حدث خطأ أثناء تهيئة المشغّل: ' + err.message, true);
+        }
+      };
+    });
+
+    clearBtn.addEventListener('click', () => {
+      urlInput.value = '';
+      if (playerIframe) { playerIframe.src = ''; }
+      videoArea.style.display = 'none';
+      showMessage('');
+      if (plyrPlayer) { try { plyrPlayer.destroy(); } catch(e){} plyrPlayer = null; }
+    });
+
+    // تفعيل زر Enter داخل الحقل
+    urlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        watchBtn.click();
+      }
+    });
+  </script>
+</body>
+</html>
